@@ -24,6 +24,7 @@ import numpy as np
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import BlipNoiser
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import BloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import ExponentialBloomFilter
+from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import GeometricBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import FirstMomentEstimator
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import FixedProbabilityBitFlipNoiser
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import invert_monotonic
@@ -31,6 +32,7 @@ from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters im
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import SurrealDenoiser
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import UniformBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import UnionEstimator
+from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import GeometricUnionEstimator
 
 
 class BloomFilterTest(absltest.TestCase):
@@ -75,6 +77,48 @@ class BloomFilterTest(absltest.TestCase):
     self.assertTrue(b2.assert_compatible(b1))
 
 
+class GeometricBloomFilterTest(absltest.TestCase):
+
+  def test_insert_lookup_with_random_seed(self):
+    b = BloomFilter(length=15, random_seed=2)
+
+    self.assertNotIn(1, b)
+    b.add(1)
+    self.assertIn(1, b)
+    self.assertNotIn(2, b)
+
+  def test_factory(self):
+    factory = GeometricBloomFilter.get_sketch_factory(length=15)
+
+    b = factory(2)
+    b.add(1)
+
+    self.assertIn(1, b)
+    self.assertNotIn(2, b)
+
+  def test_not_compatible_different_seeds(self):
+    b1 = GeometricBloomFilter(length=15, random_seed=1)
+    b2 = GeometricBloomFilter(length=15, random_seed=2)
+    with self.assertRaises(AssertionError):
+      b1.assert_compatible(b2)
+    with self.assertRaises(AssertionError):
+      b2.assert_compatible(b1)
+
+  def test_not_compatible_different_lengths(self):
+    b1 = GeometricBloomFilter(length=10, random_seed=2)
+    b2 = GeometricBloomFilter(length=15, random_seed=2)
+    with self.assertRaises(AssertionError):
+      b1.assert_compatible(b2)
+    with self.assertRaises(AssertionError):
+      b2.assert_compatible(b1)
+
+  def test_compatible(self):
+    b1 = GeometricBloomFilter(length=15, random_seed=2)
+    b2 = GeometricBloomFilter(length=15, random_seed=2)
+    self.assertTrue(b1.assert_compatible(b2))
+    self.assertTrue(b2.assert_compatible(b1))
+
+
 class AnyDistributionBloomFilterTest(parameterized.TestCase):
 
   @parameterized.parameters(
@@ -89,6 +133,17 @@ class AnyDistributionBloomFilterTest(parameterized.TestCase):
     self.assertEqual(np.sum(adbf.sketch), 1)
 
   @parameterized.parameters(
+      (GeometricBloomFilter, {}),
+  )
+  def test_nubf_insert(self, bloom_filter_class, kwargs):
+    adbf = bloom_filter_class(length=2, random_seed=1, **kwargs)
+    self.assertEqual(np.sum(adbf.sketch), 0)
+    adbf.add([1, 1])
+    self.assertEqual(np.sum(adbf.sketch), 0)
+    adbf.add([0.2, 1])
+    self.assertEqual(np.sum(adbf.sketch), 1)
+
+  @parameterized.parameters(
       (UniformBloomFilter, {}),
       (LogarithmicBloomFilter, {}),
       (ExponentialBloomFilter, {'decay_rate': 1}),
@@ -98,6 +153,18 @@ class AnyDistributionBloomFilterTest(parameterized.TestCase):
     adbf = factory(2)
     self.assertEqual(np.sum(adbf.sketch), 0)
     adbf.add([1, 1])
+    self.assertEqual(np.sum(adbf.sketch), 1)
+
+  @parameterized.parameters(
+      (GeometricBloomFilter, {}),
+  )
+  def test_nubf_factory(self, bloom_filter_class, kwargs):
+    factory = bloom_filter_class.get_sketch_factory(length=2, **kwargs)
+    adbf = factory(1)
+    self.assertEqual(np.sum(adbf.sketch), 0)
+    adbf.add([1, 1])
+    self.assertEqual(np.sum(adbf.sketch), 0)
+    adbf.add([0.2, 1])
     self.assertEqual(np.sum(adbf.sketch), 1)
 
   def test_inversion(self):
@@ -152,6 +219,55 @@ class UnionEstimatorTest(absltest.TestCase):
     b2.sketch[1] = 1
 
     cardinality = UnionEstimator()([b1, b2])
+    self.assertEqual(cardinality, 2)
+
+
+class GeometricUnionEstimatorTest(absltest.TestCase):
+
+  def test_single_insertion(self):
+    b1 = GeometricBloomFilter(length=10, random_seed=3)
+    b1.add(1)
+    self.assertEqual(GeometricUnionEstimator.estimate_cardinality(b1), 1)
+
+  def test_multi_insertion_same_element(self):
+    b1 = GeometricBloomFilter(length=10, random_seed=3)
+    b1.add(1)
+    b1.add(1)
+    self.assertEqual(GeometricUnionEstimator.estimate_cardinality(b1), 1)
+
+  def test_multi_insertion_two_hash(self):
+    # Due to hash collisions, the estimate could be 1 or 2.
+    # We test the distribution.
+    estimates = []
+    for i in range(1000):
+      b1 = GeometricBloomFilter(length=100, num_hashes=2, random_seed=i)
+      b1.add(1)
+      b1.add(2)
+      print(GeometricUnionEstimator.estimate_cardinality(b1))
+      estimates.append(GeometricUnionEstimator.estimate_cardinality(b1))
+    self.assertAlmostEqual(np.mean(estimates), 1.941, delta=0.04)
+
+  def test_union_of_two(self):
+    b1 = GeometricBloomFilter(length=10, random_seed=5)
+    b1.sketch[0] = 1
+
+    b2 = GeometricBloomFilter(length=10, random_seed=5)
+    b2.sketch[1] = 1
+
+    union = GeometricUnionEstimator().union_sketches([b1, b2])
+    self.assertEqual(GeometricUnionEstimator.estimate_cardinality(union), 2)
+    expected = np.array([1, 1, 0, 0, 0, 0, 0, 0, 0, 0], dtype=np.int32)
+    np.testing.assert_equal(union.sketch, expected,
+                            'The union sketch is no correct.')
+
+  def test_cardinality_estimation(self):
+    b1 = GeometricBloomFilter(length=10, random_seed=3)
+    b1.sketch[0] = 1
+
+    b2 = GeometricBloomFilter(length=10, random_seed=3)
+    b2.sketch[1] = 1
+
+    cardinality = GeometricUnionEstimator()([b1, b2])
     self.assertEqual(cardinality, 2)
 
 
