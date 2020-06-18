@@ -143,6 +143,33 @@ class UniformBloomFilter(AnyDistributionBloomFilter):
         random_seed)
 
 
+class GeometricBloomFilter(AnyDistributionBloomFilter):
+  """Implement a Non-Uniform Bloom Filter."""
+
+  @classmethod
+  def get_sketch_factory(cls, length, num_hashes=1):
+
+    def f(random_seed):
+      return cls(length, num_hashes, random_seed)
+
+    return f
+
+  def __init__(self, length, num_hashes=1, random_seed=None, probability=0.08):
+    """Creates a BloomFilter.
+
+    Args:
+       length: The length of bit vector for the bloom filter
+       random_seed: An optional integer specifying the random seed for
+         generating the random seeds for hash functions.
+    """
+    super().__init__(
+        any_sketch.SketchConfig([
+            any_sketch.IndexSpecification(
+                any_sketch.GeometricDistribution(length, probability), "geometric")
+        ], num_hashes=1, value_functions=[any_sketch.BitwiseOrFunction()]),
+        random_seed)
+
+
 class LogarithmicBloomFilter(AnyDistributionBloomFilter):
   """Implement an Logarithmic Bloom Filter."""
 
@@ -239,6 +266,45 @@ class UnionEstimator(EstimatorBase):
     assert isinstance(sketch_list[0], BloomFilter), "expected a BloomFilter"
     union = UnionEstimator.union_sketches(sketch_list)
     return UnionEstimator.estimate_cardinality(union)
+
+
+class GeometricUnionEstimator(EstimatorBase):
+  """A class that unions GeometricBloomFilters and estimates the combined cardinality."""
+
+  def __init__(self):
+    EstimatorBase.__init__(self)
+
+  @classmethod
+  def _check_compatibility(cls, sketch_list):
+    """Determines if all sketches are compatible."""
+    first_sketch = sketch_list[0]
+    for cur_sketch in sketch_list[1:]:
+      first_sketch.assert_compatible(cur_sketch)
+
+  @classmethod
+  def union_sketches(cls, sketch_list):
+    """Exposed for testing."""
+    GeometricUnionEstimator._check_compatibility(sketch_list)
+    union = copy.deepcopy(sketch_list[0])
+    for cur_sketch in sketch_list[1:]:
+      union.sketch = union.sketch + cur_sketch.sketch
+    return union
+
+  @classmethod
+  def estimate_cardinality(cls, sketch):
+    """Estimate the number of elements contained in the GeometricBloomFilter."""
+    z = np.sum(sketch.sketch == 0)
+    k = float(sketch.num_hashes())
+    m = float(sketch.max_size())
+    return int(abs(math.log(z/m) / (k * math.log(1 - 1 / m))))
+
+  def __call__(self, sketch_list):
+    """Does a bit-wise of all sketches and returns a combined cardinality estimate."""
+    if not sketch_list:
+      return 0
+    assert isinstance(sketch_list[0], GeometricBloomFilter), "expected a GeometricBloomFilter"
+    union = GeometricUnionEstimator.union_sketches(sketch_list)
+    return GeometricUnionEstimator.estimate_cardinality(union)
 
 
 class FirstMomentEstimator(EstimatorBase):

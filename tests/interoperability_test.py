@@ -23,10 +23,12 @@ import numpy as np
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import BlipNoiser
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import BloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import ExponentialBloomFilter
+from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import GeometricBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import FirstMomentEstimator
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import LogarithmicBloomFilter
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import SurrealDenoiser
 from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import UnionEstimator
+from wfa_cardinality_estimation_evaluation_framework.estimators.bloom_filters import GeometricUnionEstimator
 from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions import CascadingLegions
 from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions import Estimator
 from wfa_cardinality_estimation_evaluation_framework.estimators.cascading_legions import Noiser
@@ -98,6 +100,13 @@ class InteroperabilityTest(absltest.TestCase):
         sketch_noiser=None,
         estimate_noiser=None)
 
+    estimator_config_geometric_bloom_filter = EstimatorConfig(
+        sketch_factory=GeometricBloomFilter.get_sketch_factory(
+            self.sketch_size),
+        estimator=GeometricUnionEstimator(),
+        sketch_noiser=None,
+        estimate_noiser=None)
+
     estimator_config_voc = EstimatorConfig(
         sketch_factory=VectorOfCounts.get_sketch_factory(self.sketch_size),
         estimator=SequentialEstimator(),
@@ -122,6 +131,7 @@ class InteroperabilityTest(absltest.TestCase):
         'bloom_filter': estimator_config_bloom_filter,
         'logarithmic_bloom_filter': estimator_config_logarithmic_bloom_filter,
         'exponential_bloom_filter': estimator_config_exponential_bloom_filter,
+        'geometric_bloom_filter': estimator_config_geometric_bloom_filter,
         'vector_of_counts': estimator_config_voc,
         'hll': estimator_config_hll,
     }
@@ -162,6 +172,13 @@ class InteroperabilityTest(absltest.TestCase):
         sketch_noiser=None,
         estimate_noiser=None)
 
+    noised_estimator_config_geometric_bloom_filter = EstimatorConfig(
+        sketch_factory=GeometricBloomFilter.get_sketch_factory(
+            self.sketch_size),
+        estimator=GeometricUnionEstimator(),
+        sketch_noiser=BlipNoiser(self.noiser_epsilon, self.noise_random_state),
+        estimate_noiser=None)
+
     noised_estimator_config_voc = EstimatorConfig(
         sketch_factory=VectorOfCounts.get_sketch_factory(self.sketch_size),
         estimator=SequentialEstimator(),
@@ -182,6 +199,7 @@ class InteroperabilityTest(absltest.TestCase):
             noised_estimator_config_logarithmic_bloom_filter,
         'exponential_bloom_filter':
             noised_estimator_config_exponential_bloom_filter,
+        'geometric_bloom_filter': noised_estimator_config_geometric_bloom_filter,
         'vector_of_counts': noised_estimator_config_voc,
     }
 
