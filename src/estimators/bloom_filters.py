@@ -263,7 +263,7 @@ class UnionEstimator(EstimatorBase):
     """Does a bit-wise of all sketches and returns a combined cardinality estimate."""
     if not sketch_list:
       return 0
-    assert isinstance(sketch_list[0], BloomFilter), "expected a BloomFilter"
+    assert isinstance(sketch_list[0], BloomFilter), "expected a BloomFilte"
     union = UnionEstimator.union_sketches(sketch_list)
     return UnionEstimator.estimate_cardinality(union)
 
